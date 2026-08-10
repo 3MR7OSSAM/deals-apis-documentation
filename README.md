@@ -1,239 +1,384 @@
-# 🛠️ Implementation Plan — DealsFoodApp User API
+# 🛠️ Implementation Plan — DealsFoodApp User API (Laravel)
 
-## Overview
-
-بناء **User API** كامل لتطبيق DealsFoodApp بـ **pure PHP** (نفس نهج Merchant App)، يعمل على نفس قاعدة بيانات `Deals_DB`، ويُوفر 58 endpoint موثقة في `api_documentation.md`.
+## نبذة عن المشروع
+بناء **User API** كامل لتطبيق DealsFoodApp باستخدام **Laravel + Sanctum**، يشترك في نفس قاعدة البيانات `Deals_DB` مع التطبيق الموجود للتاجر (PHP خام — ليس Laravel).
 
 ---
 
-## ⚠️ ملاحظة مهمة
+## 🔍 ملاحظات مهمة بعد قراءة الملفات
+
+### قاعدة البيانات (Deals_DB.sql)
+الجداول الرئيسية المرتبطة بالـ User API:
+
+| الجدول | الوصف |
+|--------|-------|
+| `users` | المستخدمون — يحتوي: `id, name, email, phone_key, phone, password_hash, profile_image, fcm_token, is_active, deleted_at` |
+| `user_tokens` | توكنات المستخدمين (custom tokens — **ليس Sanctum**) |
+| `restaurants` | المطاعم/المتاجر — يحتوي: `id, owner_id, name_ar, name_en, address, latitude, longitude, phone, logo, cover_image, is_online, is_active, deleted_at` |
+| `menu_sections` | أقسام المنيو |
+| `menu_items` | المنتجات — يحتوي: `id, merchant_user_id, section_id, name_ar, name_en, price, image, is_active, deleted_at` |
+| `extra_groups` | مجموعات الإضافات |
+| `extra_items` | عناصر الإضافات |
+| `menu_item_extra_groups` | ربط المنتجات بالإضافات |
+| `orders` | الطلبات — يحتوي: `id, merchant_user_id, restaurant_id, customer_id, customer_name, customer_phone, customer_address, customer_latitude, customer_longitude, total_amount, delivery_fee, status, deleted_at` |
+| `order_items` | عناصر الطلب — `order_id, menu_item_id, quantity, price` |
+| `order_item_extras` | الإضافات في الطلب |
+| `reviews` | التقييمات — `id, user_id, restaurant_id, menu_item_id, rating, comment` |
+| `reels` | الريلز — `id, merchant_user_id, video_url, thumbnail_url, title_ar, title_en, likes_count, comments_count, is_visible, deleted_at` |
+| `reel_comments` | تعليقات الريلز — `id, reel_id, parent_id, user_id, customer_name, comment_text` |
+| `notifications` | الإشعارات (حالياً مرتبطة بـ merchant_users — ستحتاج جدول جديد للـ users) |
+| `categories` | التصنيفات — `id, name_ar, name_en, image, is_active` |
+| `restaurant_categories` | ربط المطاعم بالتصنيفات |
+| `restaurant_working_hours` | أوقات العمل |
+
+### ⚠️ نقاط تحتاج قرار
+> [!IMPORTANT]
+> **جدول الإشعارات الحالي (`notifications`)** مرتبط بـ `merchant_users`، لكن الـ User API يحتاج إشعارات للـ users العاديين.
+> **القرار المقترح:** إنشاء جدول `user_notifications` جديد منفصل للـ users.
 
 > [!IMPORTANT]
-> **المشروع ليس Laravel** — الـ Merchant App مبني بـ **pure PHP** (بدون framework) مع classes مخصصة لـ Database, Controller, Middleware. سنتبع نفس النمط بالضبط لأن:
-> - نفس قاعدة البيانات مشتركة
-> - نفس نمط الـ Token-based auth في جدول `user_tokens`
-> - نفس نمط الـ Routing اليدوي
+> **جدول `users`** يحتوي `name` (اسم واحد)، لكن الـ API يتوقع `first_name + last_name`.
+> **القرار المقترح:** إضافة عمود `first_name` و`last_name` أو تقسيم `name` ديناميكياً في الـ Resource.
+> سنضيف migration يضيف الأعمدة الناقصة للـ `users` table.
 
 > [!IMPORTANT]
-> **جداول إضافية مطلوبة** — جدول `users` موجود لكن هناك جداول تحتاج إنشاء:
-> - `user_addresses` — لعناوين المستخدمين
-> - `user_otps` — للـ OTP codes
-> - `cart_items` — لعناصر السلة
-> - `user_favorites` — للمتاجر المفضلة
-> - `reel_likes` — للإعجابات على الـ Reels
-> - `user_notifications` — إشعارات العميل (الموجودة `notifications` للـ Merchant)
-> - `support_messages` — للتواصل
+> **`user_tokens`** جدول Custom Tokens موجود — سنستخدم **Laravel Sanctum** بدلاً منه (يُنشئ جدول `personal_access_tokens` منفصل).
+
+> [!IMPORTANT]
+> **الـ Sliders**: لا يوجد جدول `sliders` في الـ DB الحالي.
+> **القرار المقترح:** إنشاء migration لجدول `sliders` جديد.
+
+> [!IMPORTANT]
+> **الـ Offers**: لا يوجد جدول `offers` مستقل في الـ DB الحالي.
+> **القرار المقترح:** إنشاء migration لجدول `offers` جديد.
+
+> [!IMPORTANT]
+> **الـ user_addresses**: لا يوجد جدول عناوين للمستخدمين.
+> **القرار المقترح:** إنشاء migration لجدول `user_addresses`.
+
+> [!IMPORTANT]
+> **الـ Cart**: لا يوجد جدول سلة تسوق.
+> **القرار المقترح:** إنشاء migration لجدول `user_carts` و`user_cart_items`.
+
+> [!IMPORTANT]
+> **الـ user_favorites**: لا يوجد جدول للمتاجر المفضلة.
+> **القرار المقترح:** إنشاء migration لجدول `user_favorite_shops` و`user_favorite_reels`.
+
+> [!IMPORTANT]
+> **الـ OTPs**: لا يوجد جدول OTP.
+> **القرار المقترح:** إنشاء migration لجدول `user_otps`.
+
+> [!IMPORTANT]
+> **الـ cities**: لا يوجد جدول مدن.
+> **القرار المقترح:** إنشاء migration لجدول `cities` وإضافة بيانات أولية.
+
+> [!IMPORTANT]
+> **الـ reel_likes**: لا يوجد جدول لإعجابات الريلز.
+> **القرار المقترح:** إنشاء migration لجدول `user_reel_likes`.
+
+> [!IMPORTANT]
+> **الـ support/contact**: لا يوجد جدول دعم للمستخدم.
+> **القرار المقترح:** إنشاء migration لجدول `user_support_messages`.
+
+---
+
+## 📁 هيكل المشروع المقترح
+
+```
+E:\EngazTechnology\Deals User Group\DealsUsers\   ← Laravel project جديد
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/Api/V1/
+│   │   │   ├── Auth/
+│   │   │   │   ├── AuthController.php
+│   │   │   │   └── OtpController.php
+│   │   │   ├── HomeController.php
+│   │   │   ├── ShopController.php
+│   │   │   ├── ProductController.php
+│   │   │   ├── CartController.php
+│   │   │   ├── OrderController.php
+│   │   │   ├── ProfileController.php
+│   │   │   ├── AddressController.php
+│   │   │   ├── NotificationController.php
+│   │   │   ├── SearchController.php
+│   │   │   ├── ReelController.php
+│   │   │   ├── OfferController.php
+│   │   │   └── CategoryController.php
+│   │   ├── Requests/Api/V1/         ← Form Requests
+│   │   └── Resources/Api/V1/        ← API Resources
+│   ├── Models/
+│   │   ├── User.php
+│   │   ├── Restaurant.php
+│   │   ├── MenuItem.php
+│   │   ├── MenuSection.php
+│   │   ├── ExtraGroup.php
+│   │   ├── ExtraItem.php
+│   │   ├── Order.php
+│   │   ├── OrderItem.php
+│   │   ├── Reel.php
+│   │   ├── ReelComment.php
+│   │   ├── Review.php
+│   │   ├── Category.php
+│   │   ├── Slider.php
+│   │   ├── Offer.php
+│   │   ├── UserAddress.php
+│   │   ├── UserCart.php
+│   │   ├── UserCartItem.php
+│   │   ├── UserFavoriteShop.php
+│   │   ├── UserFavoriteReel.php
+│   │   ├── UserRealLike.php
+│   │   ├── UserNotification.php
+│   │   ├── UserOtp.php
+│   │   ├── City.php
+│   │   └── UserSupportMessage.php
+│   └── Traits/
+│       └── ApiResponse.php          ← Trait للـ Response الموحد
+├── database/
+│   └── migrations/                  ← Migrations للجداول الجديدة فقط
+├── routes/
+│   └── api.php
+└── config/
+    └── sanctum.php
+```
+
+---
+
+## 🗂️ خطوات التنفيذ
+
+### المرحلة 1 — Setup المشروع
+1. إنشاء Laravel project جديد في `DealsUsers/`
+2. تثبيت Laravel Sanctum
+3. ربط نفس الـ DB (`Deals_DB`) في `.env`
+4. إنشاء `ApiResponse` Trait
+
+### المرحلة 2 — Migrations (للجداول الجديدة فقط)
+إنشاء migrations للجداول التالية (لا تمس الجداول الموجودة):
+- `alter_users_add_missing_columns` → يضيف `first_name, last_name, auth_method, latitude, longitude, app_language`
+- `create_sliders_table`
+- `create_offers_table` + `create_offer_products_table`
+- `create_user_addresses_table`
+- `create_user_carts_table` + `create_user_cart_items_table`
+- `create_user_favorite_shops_table`
+- `create_user_favorite_reels_table`
+- `create_user_reel_likes_table`
+- `create_user_notifications_table`
+- `create_user_otps_table`
+- `create_cities_table`
+- `create_user_support_messages_table`
+
+### المرحلة 3 — Models & Relationships
+إنشاء جميع Models مع الـ Relationships الصحيحة.
+
+### المرحلة 4 — Rate Limiters & Middleware
+إعداد الـ Rate Limiters في `RouteServiceProvider`:
+- `auth` → 5 req/min
+- `otp` → 3 req/15min
+- `search` → 60 req/min
+- `api` → 120 req/min
+
+### المرحلة 5 — Routes (api.php)
+تعريف جميع الـ Routes منظمة في groups.
+
+### المرحلة 6 — تنفيذ الـ Endpoints بالترتيب
+
+#### أولاً: Auth (Priority 1)
+| # | Endpoint | Method | Notes |
+|---|----------|--------|-------|
+| 1.1 | `/api/v1/auth/register` | POST | Phone uniqueness check → 409 |
+| 1.2 | `/api/v1/auth/login` | POST | Rate limited |
+| 1.3 | `/api/v1/auth/social-login` | POST | Google/Apple — upsert |
+| 1.4 | `/api/v1/auth/otp/send` | POST | Generate 4-digit OTP, store in `user_otps` |
+| 1.5 | `/api/v1/auth/otp/verify` | POST | Check OTP + expiry |
+| 1.6 | `/api/v1/auth/check-phone` | GET | Returns `available: bool` |
+| 1.7 | `/api/v1/auth/logout` | POST | Revoke current token |
+| 1.8 | `/api/v1/auth/refresh` | POST | Delete + create new Sanctum token |
+
+#### ثانياً: Home (Priority 1)
+| # | Endpoint | Method | Cache |
+|---|----------|--------|-------|
+| 2.1 | `/api/v1/home/sliders` | GET | 1hr |
+| 2.2 | `/api/v1/home/categories` | GET | 1hr |
+| 2.3 | `/api/v1/home/offers` | GET | 5min + Paginated |
+| 2.4 | `/api/v1/home/best-shops` | GET | 5min + Paginated + optional lat/lng |
+| 2.5 | `/api/v1/home/best-products` | GET | 5min + Paginated |
+
+#### ثالثاً: Shops
+| # | Endpoint | Auth |
+|---|----------|------|
+| 3.1 | `GET /api/v1/shops/{id}` | Optional |
+| 3.2 | `GET /api/v1/shops/{id}/menu` | Public |
+| 3.3 | `GET /api/v1/shops/{id}/reviews` | Public |
+| 3.4 | `GET /api/v1/shops/{id}/videos` | Public |
+| 3.5 | `POST /api/v1/shops/{id}/favorite` | 🔒 Toggle |
+| 3.6 | `POST /api/v1/shops/{id}/ratings` | 🔒 |
+| 3.7 | `GET /api/v1/me/favorite-shops` | 🔒 |
+
+#### رابعاً: Products
+| # | Endpoint | Auth |
+|---|----------|------|
+| 4.1 | `GET /api/v1/products/{id}` | Public |
+| 4.2 | `GET /api/v1/products/{id}/extras` | Public |
+| 4.3 | `GET /api/v1/products/{id}/similar` | Public |
+
+#### خامساً: Cart & Orders
+| # | Endpoint | Auth | Notes |
+|---|----------|------|-------|
+| 5.1 | `POST /api/v1/cart/items` | 🔒 | Cart Isolation — vendor check |
+| 5.2 | `GET /api/v1/cart` | 🔒 |  |
+| 5.3 | `GET /api/v1/cart/count` | 🔒 |  |
+| 5.4 | `PATCH /api/v1/cart/items/{id}` | 🔒 |  |
+| 5.5 | `DELETE /api/v1/cart/items/{id}` | 🔒 | 204 |
+| 5.6 | `GET /api/v1/cart/delivery-fee` | 🔒 | Haversine formula |
+| 5.7 | `POST /api/v1/orders` | 🔒 | Place order from cart |
+| 6.1 | `GET /api/v1/orders` | 🔒 | Filter by status |
+| 6.2 | `GET /api/v1/orders/{id}` | 🔒 |  |
+| 6.3 | `POST /api/v1/orders/{id}/rating` | 🔒 |  |
+| 6.4 | `POST /api/v1/orders/offers` | 🔒 | Order from offer directly |
+
+#### سادساً: Profile (Me)
+| # | Endpoint | Auth |
+|---|----------|------|
+| 7.1 | `GET /api/v1/me` | 🔒 |
+| 7.2 | `PATCH /api/v1/me` | 🔒 |
+| 7.3 | `POST /api/v1/me/profile-picture` | 🔒 multipart |
+| 7.4 | `PATCH /api/v1/me/password` | 🔒 |
+| 7.5 | `DELETE /api/v1/me` | 🔒 Soft Delete |
+| 7.6 | `GET /api/v1/me/favorite-reels` | 🔒 |
+
+#### سابعاً: Addresses
+| # | Endpoint | Auth |
+|---|----------|------|
+| 8.1 | `GET /api/v1/me/addresses` | 🔒 |
+| 8.2 | `POST /api/v1/me/addresses` | 🔒 |
+| 8.3 | `PATCH /api/v1/me/addresses/{id}` | 🔒 |
+| 8.4 | `DELETE /api/v1/me/addresses/{id}` | 🔒 Soft |
+| 8.5 | `PATCH /api/v1/me/addresses/{id}/default` | 🔒 |
+| 8.6 | `GET /api/v1/cities` | Public |
+
+#### ثامناً: Notifications
+| # | Endpoint | Auth | Pagination |
+|---|----------|------|-----------|
+| 9.1 | `GET /api/v1/me/notifications` | 🔒 | Cursor-based |
+| 9.2 | `PATCH /api/v1/me/notifications/{id}/read` | 🔒 |  |
+| 9.3 | `PATCH /api/v1/me/notifications/read-all` | 🔒 |  |
+
+#### تاسعاً: Search
+| # | Endpoint | Auth | Rate Limit |
+|---|----------|------|-----------|
+| 10.1 | `GET /api/v1/search` | Public | 60/min |
+
+#### عاشراً: Reels
+| # | Endpoint | Auth | Pagination |
+|---|----------|------|-----------|
+| 11.1 | `GET /api/v1/reels` | 🔒 | Cursor-based |
+| 11.2 | `POST /api/v1/reels/{id}/like` | 🔒 | Toggle |
+| 11.3 | `GET /api/v1/reels/{id}/comments` | 🔒 | Cursor-based |
+| 11.4 | `POST /api/v1/reels/{id}/comments` | 🔒 |  |
+| 11.5 | `DELETE /api/v1/reels/{id}/comments/{cid}` | 🔒 | Soft |
+
+#### حادي عشر: Misc
+| # | Endpoint | Auth |
+|---|----------|------|
+| 12.1 | `GET /api/v1/offers/{id}` | Public |
+| 13.1 | `GET /api/v1/categories/{id}` | Public |
+| 14.1 | `POST /api/v1/support/contact` | Public |
+
+---
+
+## 🔒 Business Logic المهمة
+
+### Cart Isolation
+```
+عند إضافة item من vendor مختلف عن الـ vendor الموجود في السلة:
+→ رجع 409 Conflict مع رسالة: "Cart contains items from another shop. Clear cart first."
+```
+
+### Delivery Fee Calculation (Haversine)
+```
+استخدام Haversine formula لحساب المسافة بين:
+- إحداثيات العنوان المختار (lat/lng من الـ request)
+- إحداثيات أقرب فرع (restaurant.latitude/longitude)
+ثم تطبيق سعر التوصيل المناسب.
+```
+
+### Image URLs
+```php
+// المنتجات والمتاجر
+'https://dealsapps.net/DealsAppsGroup/DealsMerchant/public/' . $path
+
+// صور الـ Users
+'https://dealsapps.net/DealsAppsGroup/DealsUsers/Photos/' . $filename
+```
+
+### OTP Flow
+```
+1. POST /auth/otp/send → generate 4-digit code
+2. Store in user_otps: {phone_key, phone, code, expires_at: now()+5min}
+3. Send via SMS/WhatsApp (log only في البيئة التطويرية)
+4. POST /auth/otp/verify → check code + not expired
+5. Mark user as verified → update users.is_active = true (if needed)
+```
+
+### Soft Delete Pattern
+```php
+// users: users.deleted_at = now(), revoke all tokens
+// addresses: user_addresses.deleted_at = now()
+// reel_comments: reel_comments.deleted_at = now() (نضيف العمود)
+```
+
+---
+
+## 📋 خطة الـ Migrations الجديدة
+
+| Migration | الجداول الجديدة / التعديلات |
+|-----------|--------------------------|
+| `2026_08_10_000001_alter_users_table` | يضيف: `first_name, last_name, auth_method (enum), latitude, longitude, app_language` |
+| `2026_08_10_000002_create_sliders_table` | `id, image, text_ar, text_en, action_type, action_value, slide_type, expires_at, is_active` |
+| `2026_08_10_000003_create_offers_table` | `id, merchant_user_id, title_ar, title_en, description_ar, description_en, image, color, status, deleted_at` |
+| `2026_08_10_000004_create_offer_products_table` | `id, offer_id, menu_item_id, offer_price, quantity` |
+| `2026_08_10_000005_create_user_addresses_table` | `id, user_id, label, city, latitude, longitude, street_name, building_number, floor_number, apartment_number, landmark, is_default, deleted_at` |
+| `2026_08_10_000006_create_user_carts_table` | `id, user_id, vendor_id, created_at` |
+| `2026_08_10_000007_create_user_cart_items_table` | `id, cart_id, menu_item_id, quantity, unit_price` |
+| `2026_08_10_000008_create_user_cart_item_extras_table` | `id, cart_item_id, extra_item_id` |
+| `2026_08_10_000009_create_user_favorite_shops_table` | `id, user_id, restaurant_id, created_at` |
+| `2026_08_10_000010_create_user_favorite_reels_table` | `id, user_id, reel_id, created_at` |
+| `2026_08_10_000011_create_user_reel_likes_table` | `id, user_id, reel_id, created_at` |
+| `2026_08_10_000012_create_user_notifications_table` | `id, user_id, type, title_ar, title_en, body_ar, body_en, action_type, action_id, is_read, created_at` |
+| `2026_08_10_000013_create_user_otps_table` | `id, phone_key, phone, code, expires_at, is_used, created_at` |
+| `2026_08_10_000014_create_cities_table` | `id, name_ar, name_en, is_active` |
+| `2026_08_10_000015_create_user_support_messages_table` | `id, name, email, phone, message, created_at` |
+| `2026_08_10_000016_alter_reel_comments_add_deleted_at` | يضيف `deleted_at` لجدول `reel_comments` |
+
+---
+
+## ✅ Verification Plan
+
+### Automated
+```bash
+php artisan test --filter=ApiTest
+```
+
+### Manual (Postman)
+- [ ] Auth endpoints — Register/Login/OTP
+- [ ] Protected endpoints ترفض بدون Token → 401
+- [ ] Pagination يعمل مع `?page=2&per_page=5`
+- [ ] Soft Delete — السجل موجود في DB بعد الحذف
+- [ ] Cart Isolation — خطأ عند إضافة من vendor مختلف
+- [ ] Image URLs كاملة (Absolute)
+- [ ] Response Format موحد في جميع الحالات
+
+---
+
+## 📌 ملاحظات ختامية
+
+> [!NOTE]
+> الـ Merchant App الموجود هو **PHP خام** وليس Laravel — لذا لن يكون هناك تعارض في الـ Models أو Config.
+
+> [!NOTE]
+> سيتم تشغيل المشروع الجديد في **نفس قاعدة البيانات** `Deals_DB` دون المساس بالبيانات الموجودة.
+
+> [!NOTE]
+> الـ OTP سيُرسل عبر **SMS/WhatsApp** — في بيئة التطوير سيُلوجَّر فقط دون إرسال فعلي. يمكن لاحقاً ربطه بـ Twilio أو Vonage.
 
 > [!WARNING]
-> **الجداول الموجودة بالفعل:** `users`, `user_tokens`, `orders`, `order_items`, `restaurants`, `menu_items`, `menu_sections`, `categories`, `reels`, `reel_comments`, `reviews`, `notifications` — لا نعدل عليها بل نضيف جداول جديدة فقط.
-
----
-
-## Open Questions
-
-> [!IMPORTANT]
-> **جدول `users`** — الـ Column الحالي اسمه `name` (وليس `first_name` + `last_name`)، هل نضيف columns جديدة أم نستخدم `name` ونُقسمه؟ **الاقتراح:** نضيف `first_name`, `last_name`, `auth_method`, `latitude`, `longitude`, `wallet_balance`, `is_verified`, `app_language` كـ ALTER TABLE.
-
-> [!IMPORTANT]
-> **جدول `notifications`** — الموجود مرتبط بـ `merchant_users` وليس `users`. نحتاج جدول `user_notifications` منفصل للعملاء.
-
----
-
-## Proposed Changes
-
-### المرحلة 1 — هيكل المشروع
-
-```
-DealsUsers/
-├── api/
-│   └── v1/
-│       └── index.php          ← Router رئيسي
-├── config/
-│   ├── database.php           ← نسخة من Merchant (نفس DB)
-│   ├── env.php                ← نسخة من Merchant
-│   └── cors.php               ← CORS headers
-├── middleware/
-│   ├── AuthMiddleware.php     ← Customer-only auth
-│   └── RateLimiter.php        ← Rate limiting
-├── controllers/
-│   ├── Controller.php         ← Base controller
-│   ├── Auth/
-│   │   └── AuthController.php
-│   ├── HomeController.php
-│   ├── ShopController.php
-│   ├── ProductController.php
-│   ├── CartController.php
-│   ├── OrderController.php
-│   ├── ProfileController.php
-│   ├── AddressController.php
-│   ├── NotificationController.php
-│   ├── SearchController.php
-│   ├── ReelController.php
-│   ├── OfferController.php
-│   └── CategoryController.php
-├── migrations/
-│   └── user_api_tables.sql    ← الجداول الجديدة
-├── Photos/                    ← صور البروفايل (موجودة)
-└── .env                       ← نفس بيانات DB
-```
-
----
-
-### المرحلة 2 — قاعدة البيانات (Migrations)
-
-#### [MODIFY] جدول `users` — إضافة columns جديدة
-
-```sql
-ALTER TABLE `users`
-    ADD COLUMN `first_name` VARCHAR(75) DEFAULT NULL AFTER `name`,
-    ADD COLUMN `last_name` VARCHAR(75) DEFAULT NULL AFTER `first_name`,
-    ADD COLUMN `auth_method` ENUM('phone','google','apple') NOT NULL DEFAULT 'phone' AFTER `last_name`,
-    ADD COLUMN `social_id` VARCHAR(255) DEFAULT NULL AFTER `auth_method`,
-    ADD COLUMN `latitude` DECIMAL(10,8) DEFAULT NULL AFTER `social_id`,
-    ADD COLUMN `longitude` DECIMAL(11,8) DEFAULT NULL AFTER `latitude`,
-    ADD COLUMN `wallet_balance` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    ADD COLUMN `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
-    ADD COLUMN `app_language` ENUM('ar','en') NOT NULL DEFAULT 'ar';
-```
-
-#### [NEW] جداول جديدة
-
-- `user_otps` — تخزين OTP codes مع expiry
-- `user_addresses` — عناوين المستخدمين
-- `cart_items` — عناصر السلة (مع extras كـ JSON)
-- `user_favorites` — pivot للمتاجر المفضلة
-- `reel_likes` — إعجابات الـ Reels
-- `user_notifications` — إشعارات العميل
-- `support_messages` — رسائل الدعم
-- `order_ratings` — تقييمات الطلبات
-
----
-
-### المرحلة 3 — Controllers (58 Endpoint)
-
-#### [NEW] AuthController.php
-- `POST /auth/register` — تسجيل مستخدم جديد
-- `POST /auth/login` — تسجيل دخول
-- `POST /auth/social-login` — Google/Apple login
-- `POST /auth/otp/send` — إرسال OTP
-- `POST /auth/otp/verify` — التحقق من OTP
-- `GET /auth/check-phone` — التحقق من رقم الهاتف
-- `POST /auth/logout` — تسجيل خروج
-- `POST /auth/refresh` — تجديد token
-
-#### [NEW] HomeController.php
-- `GET /home/sliders` — الشرائح الإعلانية
-- `GET /home/categories` — التصنيفات
-- `GET /home/offers` — العروض
-- `GET /home/best-shops` — أفضل المتاجر
-- `GET /home/best-products` — أفضل المنتجات
-
-#### [NEW] ShopController.php
-- `GET /shops/{id}` — تفاصيل المتجر
-- `GET /shops/{id}/menu` — قائمة المنتجات
-- `GET /shops/{id}/reviews` — التقييمات
-- `GET /shops/{id}/videos` — الفيديوهات
-- `POST /shops/{id}/favorite` — Toggle المفضلة
-- `POST /shops/{id}/ratings` — تقييم المتجر
-- `GET /me/favorite-shops` — المتاجر المفضلة
-
-#### [NEW] ProductController.php
-- `GET /products/{id}` — تفاصيل المنتج
-- `GET /products/{id}/extras` — الإضافات
-- `GET /products/{id}/similar` — منتجات مشابهة
-
-#### [NEW] CartController.php
-- `POST /cart/items` — إضافة للسلة
-- `GET /cart` — عرض السلة
-- `GET /cart/count` — عدد العناصر
-- `PATCH /cart/items/{id}` — تعديل الكمية
-- `DELETE /cart/items/{id}` — حذف من السلة
-- `GET /cart/delivery-fee` — حساب رسوم التوصيل
-
-#### [NEW] OrderController.php
-- `POST /orders` — تأكيد الطلب
-- `GET /orders` — طلباتي
-- `GET /orders/{id}` — تفاصيل طلب
-- `POST /orders/{id}/rating` — تقييم الطلب
-- `POST /orders/offers` — طلب عرض
-
-#### [NEW] ProfileController.php
-- `GET /me` — البروفايل
-- `PATCH /me` — تعديل البروفايل
-- `POST /me/profile-picture` — رفع صورة
-- `PATCH /me/password` — تغيير كلمة المرور
-- `DELETE /me` — حذف الحساب (Soft Delete)
-- `GET /me/favorite-reels` — الـ Reels المفضلة
-
-#### [NEW] AddressController.php
-- `GET /me/addresses` — العناوين
-- `POST /me/addresses` — إضافة عنوان
-- `PATCH /me/addresses/{id}` — تعديل عنوان
-- `DELETE /me/addresses/{id}` — حذف عنوان (Soft)
-- `PATCH /me/addresses/{id}/default` — تعيين افتراضي
-- `GET /cities` — قائمة المدن
-
-#### [NEW] NotificationController.php
-- `GET /me/notifications` — الإشعارات
-- `PATCH /me/notifications/{id}/read` — تعليم مقروء
-- `PATCH /me/notifications/read-all` — تعليم الكل مقروء
-
-#### [NEW] SearchController.php
-- `GET /search` — البحث
-
-#### [NEW] ReelController.php
-- `GET /reels` — الـ Reels Feed
-- `POST /reels/{id}/like` — Toggle الإعجاب
-- `GET /reels/{id}/comments` — التعليقات
-- `POST /reels/{id}/comments` — إضافة تعليق
-- `DELETE /reels/{id}/comments/{id}` — حذف تعليق (Soft)
-
-#### [NEW] OfferController.php
-- `GET /offers/{id}` — تفاصيل العرض
-
-#### [NEW] CategoryController.php
-- `GET /categories/{id}` — تفاصيل التصنيف
-
-#### [NEW] SupportController.php
-- `POST /support/contact` — تواصل معنا
-
----
-
-### المرحلة 4 — Middleware & Infrastructure
-
-#### [NEW] AuthMiddleware.php — Customer-only
-- يتحقق من `user_tokens` فقط (ليس `merchant_user_tokens`)
-- يُرجع بيانات المستخدم من `users` table
-
-#### [NEW] RateLimiter.php
-- Auth: 5 requests/minute
-- OTP: 3 requests/15 minutes
-- Search: 60 requests/minute
-- API: 120 requests/minute
-
-#### [NEW] Router (index.php)
-- يربط الـ URLs بالـ Controllers
-- يدعم Path Parameters مثل `/shops/{id}`
-- يدعم CORS headers
-
----
-
-## Verification Plan
-
-### الجداول الجديدة
-- التأكد من إنشاء الجداول بدون أخطاء
-- التأكد من عدم تأثير الـ ALTER TABLE على بيانات Merchant App
-
-### Testing بالترتيب
-1. `POST /auth/register` → يُنشئ user وtoken
-2. `POST /auth/login` → يُعيد token
-3. `GET /home/sliders` → يُعيد sliders من DB
-4. `GET /shops/{id}` → يُعيد بيانات restaurant
-5. `POST /cart/items` → يضيف للسلة
-6. `POST /orders` → يُنشئ order
-
-### Response Format
-- كل الـ responses تتبع الـ Standard Envelope
-- الـ IDs دائماً `string`
-- الصور دائماً Absolute URLs
-- التواريخ ISO 8601
+> جدول `notifications` الموجود مرتبط بـ `merchant_users` — سنُنشئ `user_notifications` منفصل تماماً ولن نمس الجدول الأصلي.
