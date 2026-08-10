@@ -3,6 +3,7 @@
 **API Version:** `v1`  
 *Base URL:* https://dealsapps.net/DealsAppsGroup/DealsUsers/  
 *Image Base URL:* https://dealsapps.net/DealsAppsGroup/DealsUsers/Photos/
+
 **Last Updated:** 2026-08-10  
 
 ---
