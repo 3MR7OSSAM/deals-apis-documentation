@@ -1,8 +1,8 @@
 # أحلي مسا عليك يصاحبي
 # 📄 API Documentation — DealsFoodApp
 **API Version:** `v1`  
-**Base URL:** `https://sahlaapp.com/api/v1/`  
-**Image Base URL:** `https://sahlaapp.com/storage/`  
+*Base URL:* https://dealsapps.net/DealsAppsGroup/DealsUsers/  
+*Image Base URL:* https://dealsapps.net/DealsAppsGroup/DealsUsers/Photos/
 **Last Updated:** 2026-08-10  
 
 ---
